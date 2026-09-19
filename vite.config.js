@@ -39,6 +39,15 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2020',
     rollupOptions: {
+      // ═══════════════════════════════════════════════════════
+      //  نقاط الدخول (Entry Points)
+      //  main:   الصفحة الرئيسية للتطبيق
+      //  player: صفحة المشغل المستقلة (تُحمّل داخل iframe)
+      // ═══════════════════════════════════════════════════════
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        player: resolve(__dirname, 'src/player.html'),
+      },
       output: {
         manualChunks: {
           teleproto: ['teleproto'],
