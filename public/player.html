@@ -28,7 +28,6 @@
     .status.on { color: #34c759; }
     .status.err { color: #ff383c; }
     .status.load { color: #ffcc00; }
-
     .stage {
       flex: 1;
       position: relative;
@@ -44,7 +43,6 @@
       display: block;
       outline: none;
     }
-
     .overlay {
       position: absolute;
       inset: 0;
@@ -67,10 +65,8 @@
       animation: spin 0.85s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-
     .overlay h2 { font-size: 1.2rem; font-weight: 700; }
     .overlay p { color: #9a9aa5; font-size: 0.9rem; max-width: 480px; line-height: 1.7; }
-
     .progress {
       width: 280px;
       max-width: 80vw;
@@ -85,7 +81,6 @@
       width: 0%;
       transition: width 0.25s ease;
     }
-
     .error {
       background: rgba(229,9,20,0.08);
       border: 1px solid #e50914;
@@ -122,7 +117,6 @@
       border: 1px solid rgba(255,255,255,0.15);
     }
     .btn.ghost:hover { background: rgba(255,255,255,0.06); }
-
     .hidden { display: none !important; }
   </style>
 </head>
@@ -137,9 +131,7 @@
       <div class="overlay" id="loading">
         <div class="spinner"></div>
         <h2 id="loadingTitle">جاري تحميل الحلقة</h2>
-        <p id="loadingText">
-          يرجى الانتظار بينما نجلب الفيديو من Telegram...
-        </p>
+        <p id="loadingText">يرجى الانتظار بينما نجلب الفيديو من Telegram...</p>
         <div class="progress"><div id="progressBar"></div></div>
       </div>
 
