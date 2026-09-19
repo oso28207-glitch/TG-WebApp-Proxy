@@ -1,5 +1,11 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// معرّف __dirname لبيئة ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export default defineConfig({
   resolve: {
@@ -22,14 +28,10 @@ export default defineConfig({
       'node:stream': resolve('src/shims/stream.js'),
       assert: resolve('src/shims/assert.js'),
       'node:assert': resolve('src/shims/assert.js'),
-      // teleproto uses zlib for GZIPPacked messages
       zlib: resolve('src/shims/zlib.js'),
       'node:zlib': resolve('src/shims/zlib.js'),
-      // teleproto uses node-localstorage (Node.js only) — we don't need it in browser
       'node-localstorage': resolve('src/shims/node-localstorage.js'),
-      // teleproto uses socks for proxy — not needed in browser
       'socks': resolve('src/shims/socks.js'),
-      // teleproto uses store2 — provide it or shim it
     },
   },
   define: {
@@ -39,11 +41,6 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2020',
     rollupOptions: {
-      // ═══════════════════════════════════════════════════════
-      //  نقاط الدخول (Entry Points)
-      //  main:   الصفحة الرئيسية للتطبيق
-      //  player: صفحة المشغل المستقلة (تُحمّل داخل iframe)
-      // ═══════════════════════════════════════════════════════
       input: {
         main: resolve(__dirname, 'index.html'),
         player: resolve(__dirname, 'src/player.html'),
