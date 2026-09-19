@@ -336,14 +336,12 @@ function renderApp(hasSavedCreds) {
 // ===== Restore from IndexedDB =====
 async function restoreFromDB() {
   try {
-    // Restore conversations (grouped by sender) — all of them
     const convos = await getAllConversations();
     addLog('dim', `Found ${convos.length} conversations in DB`);
     for (const convo of convos) {
-      renderConversationItem(convo, true); // true = append (for restore order)
+      renderConversationItem(convo, true);
     }
     
-    // Restore files (all, no limit)
     const files = await getAllFiles(500);
     for (const file of files) {
       renderRestoredFile(file);
@@ -357,17 +355,11 @@ async function restoreFromDB() {
   }
 }
 
-/**
- * Reconstruct a fileRef object from IndexedDB stored file data.
- * Uses stored docId/photoId + accessHash + base64 fileReference to rebuild
- * the Api.InputDocumentFileLocation or Api.InputPhotoFileLocation needed for download.
- */
 function reconstructFileRef(file) {
   const Api = getApi();
   let fileLocation = null;
 
   if (file.docId && file.docAccessHash && file.docFileReference) {
-    // Document (video, audio, any file)
     fileLocation = new Api.InputDocumentFileLocation({
       id: BigInt(file.docId),
       accessHash: BigInt(file.docAccessHash),
@@ -375,7 +367,6 @@ function reconstructFileRef(file) {
       thumbSize: '',
     });
   } else if (file.photoId && file.photoAccessHash && file.photoFileReference) {
-    // Photo
     fileLocation = new Api.InputPhotoFileLocation({
       id: BigInt(file.photoId),
       accessHash: BigInt(file.photoAccessHash),
@@ -392,10 +383,10 @@ function reconstructFileRef(file) {
     mimeType: file.mimeType,
     fileLocation,
     dcId: file.dcId,
-    message: null, // No live message — uses parallel download path
+    message: null,
     hasMedia: true,
     chatName: file.chatName || '',
-    dbId: file.id, // IndexedDB key for marking as downloaded
+    dbId: file.id,
   };
 }
 
@@ -427,7 +418,6 @@ function renderRestoredFile(file) {
     }
   `;
 
-  // Wire up download button for files with stored IDs
   if (!file.downloaded && hasIds) {
     const btn = item.querySelector('button');
     if (btn) {
@@ -438,10 +428,6 @@ function renderRestoredFile(file) {
   list.prepend(item);
 }
 
-/**
- * Handle download of a restored file from IndexedDB.
- * Reconstructs the file location from stored IDs and downloads via parallel path.
- */
 async function handleRestoredDownload(itemEl, file) {
   if (!isConnected || !downloader || isDownloading) {
     addLog('warn', 'Cannot download: busy or disconnected.');
@@ -466,7 +452,6 @@ async function handleRestoredDownload(itemEl, file) {
     const { blob, fileInfo } = await downloader.downloadFile(fileRef);
     downloader.saveBlobAs(blob, fileInfo.fileName);
 
-    // Mark as downloaded in IndexedDB
     if (fileRef.dbId) {
       markFileDownloaded(fileRef.dbId).catch(() => {});
     }
@@ -524,21 +509,17 @@ function bindEvents() {
     if (e.target.id === 'replyModal') closeReplyModal();
   });
   
-  // Toggle settings card visibility
   document.getElementById('btnBotSettings')?.addEventListener('click', () => {
     document.getElementById('settingsCard')?.classList.toggle('hidden');
   });
 
-  // Switch to user mode
   document.getElementById('btnSwitchToUser')?.addEventListener('click', () => {
     setSavedMode('user');
     initUserMode();
   });
 
-  // Settings bindings
   document.getElementById('btnSaveSettings').addEventListener('click', handleSaveSettings);
   document.getElementById('btnResetSettings').addEventListener('click', handleResetSettings);
-  // Load saved settings into UI
   loadSettingsUI();
 
   document.getElementById('messageLink').addEventListener('input', (e) => {
@@ -564,7 +545,7 @@ function bindEvents() {
   });
 }
 
-// ===== Save & Reconnect (edit creds in saved mode) =====
+// ===== Save & Reconnect =====
 async function handleSaveReconnect() {
   const apiId = document.getElementById('apiId').value.trim();
   const apiHash = document.getElementById('apiHash').value.trim();
@@ -575,18 +556,15 @@ async function handleSaveReconnect() {
   btn.disabled = true;
   btn.innerHTML = '⏳ Saving...';
 
-  // Disconnect current session
   if (downloader && isConnected) {
     await downloader.disconnect();
     isConnected = false;
   }
 
-  // Clear old session (different bot token = different session)
   const temp = new TGDownloader(() => {}, () => {});
   temp.clearSession();
   listenersStarted = false;
 
-  // Connect with new creds
   setConnectionStatus('connecting');
   try {
     downloader = new TGDownloader(addLog, updateProgress);
@@ -606,7 +584,6 @@ async function handleSaveReconnect() {
   }
 }
 
-// ===== Disconnect Handler (saved-creds mode) =====
 async function handleDisconnect() {
   manuallyDisconnected = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -618,7 +595,6 @@ async function handleDisconnect() {
   addLog('info', 'Disconnected manually. Use ⚡ Connect to reconnect.');
 }
 
-// ===== Reconnect Handler (saved-creds mode, after manual disconnect) =====
 async function handleReconnect() {
   const saved = new TGDownloader(() => {}, () => {}).getSavedCredentials();
   if (!saved) { addLog('error', 'No saved credentials.'); return; }
@@ -646,7 +622,6 @@ async function handleReconnect() {
   }
 }
 
-// ===== Auto Reconnect =====
 async function autoReconnect(saved) {
   setConnectionStatus('connecting');
   try {
@@ -666,7 +641,6 @@ async function autoReconnect(saved) {
   }
 }
 
-// ===== Connection Handler =====
 async function handleConnect() {
   const btn = document.getElementById('btnConnect');
   if (isConnected && downloader) {
@@ -717,14 +691,11 @@ function startListeners() {
   if (fileStatus) fileStatus.textContent = '🟢 Listening';
   if (msgStatus) msgStatus.textContent = '🟢 Listening';
 
-  // File listener (media only)
   downloader.startListening((fileRef) => addIncomingFile(fileRef));
-
-  // Message listener (all messages)
   downloader.startMessageListener((msgInfo) => addIncomingMessage(msgInfo));
 }
 
-// ===== Step 1: Fetch File Info =====
+// ===== Fetch File Info =====
 async function handleFetchInfo() {
   if (!isConnected || !downloader) return;
   const linkInput = document.getElementById('messageLink').value.trim();
@@ -750,10 +721,9 @@ async function handleFetchInfo() {
   }
 }
 
-// ===== Step 2: Download =====
+// ===== Download =====
 async function handleDownload() {
   if (!isConnected || !downloader || isDownloading || !currentFileRef) return;
-  // Use settings for worker count (not the legacy dropdown)
   const btn = document.getElementById('btnDownload');
   const progressBox = document.getElementById('progressBox');
   btn.disabled = true;
@@ -778,7 +748,7 @@ async function handleDownload() {
   }
 }
 
-// ===== Incoming Files (fixed layout: download below) =====
+// ===== Incoming Files =====
 let incomingCounter = 0;
 
 function addIncomingFile(fileRef) {
@@ -807,7 +777,6 @@ function addIncomingFile(fileRef) {
   item.querySelector('button').addEventListener('click', () => handleIncomingDownload(item, fileRef));
   list.prepend(item);
 
-  // Persist to IndexedDB with doc IDs for reconstruction after refresh
   const saveData = { ...fileRef };
   if (fileRef.message?.media?.document) {
     const doc = fileRef.message.media.document;
@@ -857,18 +826,11 @@ async function handleIncomingDownload(itemEl, fileRef) {
 }
 
 // ===== Incoming Messages (Conversation-based) =====
-// Shows one item per sender with latest message. Click opens full chat.
+let openChatSenderId = null;
 
-let openChatSenderId = null; // Currently open chat in modal
-
-/**
- * Render or update a conversation item in the list.
- * Only shows the latest message per sender.
- */
 function renderConversationItem(convo, useAppend = false) {
   const list = document.getElementById('messagesList');
   if (!list) return;
-  // Only clear the "No messages yet" placeholder — use :scope > p to avoid matching .text-dim inside items
   const placeholder = list.querySelector(':scope > p.text-dim');
   if (placeholder) placeholder.remove();
 
@@ -879,19 +841,16 @@ function renderConversationItem(convo, useAppend = false) {
   const time = convo.lastMessageDate ? new Date(convo.lastMessageDate).toLocaleTimeString() : '';
   const msgCount = convo.messages ? convo.messages.length : 0;
 
-  // Check if item already exists — update it
   let item = document.getElementById(`convo_${senderId}`);
   if (item) {
     item.querySelector('.msg-text').textContent = preview.length > 120 ? preview.slice(0, 120) + '...' : preview;
     item.querySelector('.msg-time').textContent = time;
     const countEl = item.querySelector('.msg-count');
     if (countEl) countEl.textContent = `${msgCount} msgs`;
-    // Move to top
     list.prepend(item);
     return;
   }
 
-  // Create new conversation item
   item = document.createElement('div');
   item.className = 'msg-item convo-item';
   item.id = `convo_${senderId}`;
@@ -905,7 +864,6 @@ function renderConversationItem(convo, useAppend = false) {
     <div class="msg-text">${escapeHtml(preview.length > 120 ? preview.slice(0, 120) + '...' : preview)}</div>
   `;
 
-  // Click to open full chat
   item.addEventListener('click', () => openChatModal(convo));
   if (useAppend) {
     list.appendChild(item);
@@ -914,11 +872,7 @@ function renderConversationItem(convo, useAppend = false) {
   }
 }
 
-/**
- * Called when a new message arrives. Groups by sender, updates the conversation item.
- */
 async function addIncomingMessage(msgInfo) {
-  // Download photo thumbnail if available
   let thumbnailUrl = null;
   if (msgInfo.hasMedia && msgInfo.message?.media?.photo && downloader) {
     try {
@@ -929,11 +883,9 @@ async function addIncomingMessage(msgInfo) {
     msgInfo.thumbnailUrl = thumbnailUrl;
   }
 
-  // Extract reply-to context from raw GramJS message
   const rawMsg = msgInfo.message;
   if (rawMsg?.replyTo?.replyToMsgId) {
     msgInfo.replyToMsgId = rawMsg.replyTo.replyToMsgId;
-    // Try to find the original message text in current conversation
     if (currentChatConvo) {
       const freshConvo = await getConversation(currentChatConvo.senderId);
       const origMsg = freshConvo?.messages?.find(m => m.id === rawMsg.replyTo.replyToMsgId);
@@ -941,7 +893,6 @@ async function addIncomingMessage(msgInfo) {
     }
   }
 
-  // Save to conversation in IndexedDB (with thumbnail if available)
   const convoData = { ...msgInfo };
   if (thumbnailUrl) convoData.thumbnailUrl = thumbnailUrl;
   const convo = await addMessageToConversation(convoData);
@@ -949,7 +900,6 @@ async function addIncomingMessage(msgInfo) {
     renderConversationItem(convo);
   }
 
-  // If chat popup is open for this sender, add the message in real-time
   if (openChatSenderId === msgInfo.senderId) {
     appendMessageToChatPopup({
       id: msgInfo.id,
@@ -965,9 +915,9 @@ async function addIncomingMessage(msgInfo) {
   }
 }
 
-// ===== Chat Popup (full conversation) =====
+// ===== Chat Popup =====
 let currentChatConvo = null;
-let replyToMsgId = null; // When clicking a message to reply to it
+let replyToMsgId = null;
 
 async function openChatModal(convo) {
   currentChatConvo = convo;
@@ -990,17 +940,14 @@ async function openChatModal(convo) {
   });
   originalBox.innerHTML = '';
 
-  // Load full conversation from DB
   const freshConvo = await getConversation(convo.senderId);
   const messages = freshConvo?.messages || convo.messages || [];
 
-  // Build a lookup map for resolving replyToText from conversation messages
   const msgTextMap = {};
   for (const m of messages) {
     if (m.id) msgTextMap[m.id] = m.text || (m.hasMedia ? '[Media]' : '[Empty]');
   }
 
-  // Render all messages, resolving replyToText if missing
   conversation.innerHTML = '';
   for (const msg of messages) {
     if (msg.replyToMsgId && !msg.replyToText && msgTextMap[msg.replyToMsgId]) {
@@ -1013,7 +960,6 @@ async function openChatModal(convo) {
   modal.classList.remove('hidden');
   input.focus();
 
-  // Scroll to bottom
   setTimeout(() => { conversation.scrollTop = conversation.scrollHeight; }, 50);
 }
 
@@ -1024,7 +970,6 @@ function appendMessageToChatPopup(msg) {
   const time = msg.date ? new Date(msg.date).toLocaleTimeString() : '';
   const div = document.createElement('div');
 
-  // Reply-to context bar (clickable to scroll to original message)
   let replyBar = '';
   if (msg.replyToText || msg.replyToMsgId) {
     const short = msg.replyToText ? (msg.replyToText.length > 60 ? msg.replyToText.slice(0, 60) + '...' : msg.replyToText) : `Message #${msg.replyToMsgId}`;
@@ -1033,7 +978,6 @@ function appendMessageToChatPopup(msg) {
   }
 
   if (msg.fromBot) {
-    // Our reply (right-aligned)
     div.className = 'reply-sent';
     div.innerHTML = `
       ${replyBar}
@@ -1041,12 +985,10 @@ function appendMessageToChatPopup(msg) {
       <div class="reply-sent-time">${time}</div>
     `;
   } else {
-    // Their message (left-aligned, clickable to reply-to)
     div.className = 'reply-received clickable-msg';
     if (msg.id) div.id = `botmsg_${msg.id}`;
     const content = msg.text || (msg.hasMedia ? '' : '[Empty]');
 
-    // Photo / media rendering
     let mediaHtml = '';
     if (msg.thumbnailUrl) {
       mediaHtml = `<div class="media-photo-container"><img src="${msg.thumbnailUrl}" class="media-photo-thumb" alt="📷" onclick="event.stopPropagation(); window._showPhotoLightbox && window._showPhotoLightbox('${msg.thumbnailUrl}', ${msg.id || 0})" /></div>`;
@@ -1054,7 +996,6 @@ function appendMessageToChatPopup(msg) {
       mediaHtml = `<div class="media-photo-container"><div class="media-photo-placeholder" onclick="event.stopPropagation();"><span>📷</span><span class="media-photo-label">Photo</span><span class="media-photo-load">Click to view</span></div></div>`;
     }
 
-    // File download button for non-photo media
     let fileHtml = '';
     if (msg.hasMedia && msg._rawMessage?.media?.document) {
       const doc = msg._rawMessage.media.document;
@@ -1065,7 +1006,7 @@ function appendMessageToChatPopup(msg) {
       const fSize = doc.size ? formatFileSize(Number(doc.size)) : '';
       const fIcon = getFileIcon(doc.mimeType || '', fName);
       fileHtml = `<div class="media-file-container" onclick="event.stopPropagation(); window._botDownloadMedia && window._botDownloadMedia(${msg.id || 0})"><span class="media-file-icon">${fIcon}</span><span class="media-file-name">${escapeHtml(fName)} ${fSize ? '(' + fSize + ')' : ''}</span><span class="media-file-dl">📥 Download</span></div>`;
-      mediaHtml = ''; // Don't show photo placeholder for documents
+      mediaHtml = '';
     }
 
     div.innerHTML = `
@@ -1099,10 +1040,8 @@ function setReplyTo(msgId, preview) {
   document.getElementById('replyInput')?.focus();
 }
 
-// Expose clearReplyTo globally for inline onclick
 window._clearReplyTo = () => { replyToMsgId = null; };
 
-// Photo lightbox — show full-size photo with download
 window._showPhotoLightbox = async (thumbUrl, msgId) => {
   const overlay = document.createElement('div');
   overlay.className = 'photo-lightbox';
@@ -1117,11 +1056,9 @@ window._showPhotoLightbox = async (thumbUrl, msgId) => {
   overlay.querySelector('.lightbox-close-btn').addEventListener('click', (e) => { e.stopPropagation(); overlay.remove(); });
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 
-  // Download button — save full photo
   overlay.querySelector(`#botLightboxDl_${msgId}`).addEventListener('click', async (e) => {
     e.stopPropagation();
     if (!downloader?.connected) return;
-    // Find the raw message from the current conversation
     const freshConvo = currentChatConvo ? await getConversation(currentChatConvo.senderId) : null;
     const msg = freshConvo?.messages?.find(m => m.id === msgId);
     if (msg?._rawMessage) {
@@ -1134,7 +1071,6 @@ window._showPhotoLightbox = async (thumbUrl, msgId) => {
 
   document.body.appendChild(overlay);
 
-  // Try to load full-size photo
   if (downloader?.connected && currentChatConvo) {
     const freshConvo = await getConversation(currentChatConvo.senderId);
     const msg = freshConvo?.messages?.find(m => m.id === msgId);
@@ -1153,7 +1089,6 @@ window._showPhotoLightbox = async (thumbUrl, msgId) => {
   }
 };
 
-// Bot mode: download media from a message in the chat popup
 window._botDownloadMedia = async (msgId) => {
   if (!downloader?.connected || isDownloading) { addLog('warn', 'Busy or disconnected.'); return; }
   if (!currentChatConvo) return;
@@ -1213,7 +1148,6 @@ async function handleSendReply() {
   btn.innerHTML = '⏳';
 
   try {
-    // Reconstruct chatPeer from stored data
     let chatPeer;
     if (currentChatConvo.chatPeerType === 'channel') {
       chatPeer = { channelId: currentChatConvo.chatPeerId };
@@ -1225,18 +1159,14 @@ async function handleSendReply() {
 
     await downloader.sendMessage(chatPeer, text, replyToMsgId || undefined);
 
-    // Capture reply context before clearing
     const savedReplyToMsgId = replyToMsgId;
     const savedReplyToText = replyToMsgId ? (document.querySelector('.reply-quote-text')?.textContent?.replace('↩ Replying to: ', '') || '') : null;
 
-    // Clear reply-to state
     replyToMsgId = null;
     document.getElementById('replyOriginalMsg').innerHTML = '';
 
-    // Save our reply to DB (with reply context)
     await addBotReplyToConversation(currentChatConvo.senderId, text, savedReplyToMsgId, savedReplyToText);
 
-    // Show in popup
     appendMessageToChatPopup({
       text,
       date: new Date().toISOString(),
@@ -1245,7 +1175,6 @@ async function handleSendReply() {
       replyToText: savedReplyToText || null,
     });
 
-    // Update conversation item preview
     const freshConvo = await getConversation(currentChatConvo.senderId);
     if (freshConvo) renderConversationItem(freshConvo);
 
@@ -1283,7 +1212,6 @@ function setConnectionStatus(status) {
   badge.className = `status-badge ${status}`;
   text.textContent = status.charAt(0).toUpperCase() + status.slice(1);
   
-  // Show/hide disconnect & reconnect buttons in saved-creds mode
   const btnDisconnect = document.getElementById('btnDisconnect');
   const btnReconnect = document.getElementById('btnReconnect');
   if (btnDisconnect) {
@@ -1293,7 +1221,6 @@ function setConnectionStatus(status) {
     btnReconnect.style.display = (status === 'disconnected') ? '' : 'none';
   }
   
-  // Update listening status indicators
   const fileStatus = document.getElementById('listeningStatus');
   const msgStatus = document.getElementById('msgListeningStatus');
   if (status === 'connected') {
@@ -1378,7 +1305,7 @@ let reconnectTimer = null;
 
 function startConnectionWatcher() {
   window.addEventListener('online', () => {
-    if (manuallyDisconnected) return; // Don't auto-reconnect if user chose to disconnect
+    if (manuallyDisconnected) return;
     addLog('info', '🌐 Internet restored. Reconnecting in 5s...');
     scheduleReconnect(5000);
   });
@@ -1390,7 +1317,7 @@ function startConnectionWatcher() {
     if (btn) { btn.innerHTML = '⚡ Connect'; btn.className = 'btn-primary'; }
   });
   setInterval(async () => {
-    if (manuallyDisconnected) return; // Don't auto-reconnect if user chose to disconnect
+    if (manuallyDisconnected) return;
     if (!downloader || !navigator.onLine) return;
     if (isConnected && downloader.connected) return;
     if (navigator.onLine && downloader._credentials) {
@@ -1431,7 +1358,7 @@ function scheduleReconnect(delayMs) {
 // ===== Settings Handlers =====
 function loadSettingsUI() {
   const s = getSettings();
-  const proxy = getProxySettings(); // Shared proxy
+  const proxy = getProxySettings();
   const workersEl = document.getElementById('settingsWorkers');
   const chunkEl = document.getElementById('settingsChunkSize');
   const proxyEl = document.getElementById('settingsProxy');
@@ -1451,14 +1378,12 @@ function handleSaveSettings() {
   let proxyDomain = (document.getElementById('settingsProxyDomain')?.value || '').trim();
   proxyDomain = proxyDomain.replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '').replace(/\/+$/, '');
 
-  // Save bot-specific settings
   const s = getSettings();
   s.parallelWorkers = Math.min(Math.max(1, workers), 8);
   s.chunkSize = chunkSize;
   s.stealthMode = !!document.getElementById('settingsStealth')?.checked;
   saveSettings(s);
 
-  // Save shared proxy settings (syncs to both modes)
   saveProxySettings({ proxyEnabled, proxyDomain });
 
   const domainEl = document.getElementById('settingsProxyDomain');
@@ -1483,6 +1408,7 @@ function handleResetSettings() {
   }
   addLog('info', '⚙️ Settings reset to defaults.');
 }
+
 // ═══════════════════════════════════════════════════════════
 //  Player API — exposed for player.html iframe integration
 //  يسمح لصفحة player.html بطلب تحميل الفيديو والحصول على Blob URL
@@ -1493,12 +1419,6 @@ function handleResetSettings() {
     window.__tg_player_api__ = {
         isReady: true,
 
-        /**
-         * تحميل فيديو من رسالة تليجرام وإرجاع Blob URL
-         * @param {string} channel   - @username أو -100xxxx
-         * @param {string|number} messageId
-         * @param {object} callbacks - { onProgress, onComplete, onError }
-         */
         loadVideo: async function (channel, messageId, callbacks) {
             const opts = callbacks || {};
             try {
@@ -1515,7 +1435,6 @@ function handleResetSettings() {
                     linkKey
                 );
 
-                // مرر تقدم التحميل إلى الواجهة
                 const originalOnProgress = downloader.onProgress;
                 downloader.onProgress = function (data) {
                     try {
@@ -1538,7 +1457,6 @@ function handleResetSettings() {
             }
         },
 
-        /** فحص الجلسة المحفوظة */
         getSession: function () {
             try {
                 return downloader ? downloader.getSavedCredentials() : null;
@@ -1550,6 +1468,7 @@ function handleResetSettings() {
 
     console.log('[player-api] Exposed window.__tg_player_api__');
 })();
+
 // ===== Boot =====
 document.addEventListener('DOMContentLoaded', () => {
   init();
