@@ -1483,7 +1483,73 @@ function handleResetSettings() {
   }
   addLog('info', '⚙️ Settings reset to defaults.');
 }
+// ═══════════════════════════════════════════════════════════
+//  Player API — exposed for player.html iframe integration
+//  يسمح لصفحة player.html بطلب تحميل الفيديو والحصول على Blob URL
+// ═══════════════════════════════════════════════════════════
+(function exposePlayerAPI() {
+    if (window.__tg_player_api__) return;
 
+    window.__tg_player_api__ = {
+        isReady: true,
+
+        /**
+         * تحميل فيديو من رسالة تليجرام وإرجاع Blob URL
+         * @param {string} channel   - @username أو -100xxxx
+         * @param {string|number} messageId
+         * @param {object} callbacks - { onProgress, onComplete, onError }
+         */
+        loadVideo: async function (channel, messageId, callbacks) {
+            const opts = callbacks || {};
+            try {
+                if (!downloader || !isConnected) {
+                    throw new Error(
+                        'Not connected. Open the main app first to authenticate.'
+                    );
+                }
+
+                const linkKey = `player_${channel}_${messageId}`;
+                const ref = await downloader.fetchFileInfo(
+                    String(channel),
+                    Number(messageId),
+                    linkKey
+                );
+
+                // مرر تقدم التحميل إلى الواجهة
+                const originalOnProgress = downloader.onProgress;
+                downloader.onProgress = function (data) {
+                    try {
+                        if (opts.onProgress && data && data.percent) {
+                            opts.onProgress(data.percent);
+                        }
+                    } catch (_) {}
+                    if (originalOnProgress) originalOnProgress(data);
+                };
+
+                const result = await downloader.downloadFile(ref);
+                downloader.onProgress = originalOnProgress;
+
+                const blob = result && result.blob ? result.blob : result;
+                const url = URL.createObjectURL(blob);
+
+                if (opts.onComplete) opts.onComplete(url, ref);
+            } catch (e) {
+                if (opts.onError) opts.onError(e.message || String(e));
+            }
+        },
+
+        /** فحص الجلسة المحفوظة */
+        getSession: function () {
+            try {
+                return downloader ? downloader.getSavedCredentials() : null;
+            } catch (_) {
+                return null;
+            }
+        },
+    };
+
+    console.log('[player-api] Exposed window.__tg_player_api__');
+})();
 // ===== Boot =====
 document.addEventListener('DOMContentLoaded', () => {
   init();
