@@ -1,14 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
 // TG-WebApp-Proxy — main.js
-// نقطة الدخول الرئيسية للتطبيق
 // ═══════════════════════════════════════════════════════════════
 
 import { TGDownloader } from './tg-downloader.js';
 import { initUI } from './ui.js';
 
-// ═══════════════════════════════════════════════════════════════
-// تحميل الإعدادات
-// ═══════════════════════════════════════════════════════════════
 function loadSettings() {
   try {
     const raw = localStorage.getItem('tgcf_settings_bot')
@@ -16,18 +12,9 @@ function loadSettings() {
              || localStorage.getItem('tgcf_settings');
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  return {
-    workers: 4,
-    chunkSize: 524288,
-    proxyEnabled: false,
-    proxyDomain: '',
-    stealth: false,
-  };
+  return { workers: 4, chunkSize: 524288, proxyEnabled: false, proxyDomain: '', stealth: false };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Embed Mode — يعرض الفيديو مباشرة داخل iframe
-// ═══════════════════════════════════════════════════════════════
 async function runEmbedMode(tgUrl) {
   const setText = (t) => {
     const el = document.getElementById('embedText');
@@ -63,18 +50,14 @@ async function runEmbedMode(tgUrl) {
     }
   };
 
-  // ─── الحصول على الاعتماد ───
   const temp = new TGDownloader(() => {}, () => {});
   let saved = temp.getSavedCredentials();
 
-  // إذا لم توجد محلياً، اطلب من الصفحة الأم
   if (!saved || !saved.apiId || !saved.apiHash || !saved.botToken) {
     setText('جاري طلب بيانات الجلسة...');
-
     if (window.parent !== window) {
       try { window.parent.postMessage({ type: 'tg-embed-request-creds' }, '*'); } catch (e) {}
     }
-
     saved = await new Promise((resolve) => {
       const handler = (event) => {
         if (event.data && event.data.type === 'tg-embed-creds') {
@@ -83,26 +66,19 @@ async function runEmbedMode(tgUrl) {
         }
       };
       window.addEventListener('message', handler);
-      setTimeout(() => {
-        window.removeEventListener('message', handler);
-        resolve(null);
-      }, 6000);
+      setTimeout(() => { window.removeEventListener('message', handler); resolve(null); }, 6000);
     });
   }
 
-  // محاولة أخيرة من localStorage المحلي
   if (!saved || !saved.apiId || !saved.apiHash || !saved.botToken) {
     saved = temp.getSavedCredentials();
   }
 
   if (!saved || !saved.apiId || !saved.apiHash || !saved.botToken) {
-    showError(
-      'لا توجد جلسة مسجّلة. افتح الصفحة الرئيسية للمشغل وسجّل الدخول أولاً، ثم أعد تحميل هذه الصفحة.'
-    );
+    showError('لا توجد جلسة مسجّلة. افتح الصفحة الرئيسية للمشغل وسجّل الدخول أولاً، ثم أعد تحميل هذه الصفحة.');
     return;
   }
 
-  // ─── تحليل الرابط ───
   let parsed = null;
   let m = tgUrl.match(/t\.me\/c\/(\d+)\/(\d+)/);
   if (m) parsed = { channel: '-100' + m[1], messageId: parseInt(m[2], 10) };
@@ -110,10 +86,7 @@ async function runEmbedMode(tgUrl) {
     m = tgUrl.match(/t\.me\/([A-Za-z0-9_]{4,})\/(\d+)/);
     if (m) parsed = { channel: m[1], messageId: parseInt(m[2], 10) };
   }
-  if (!parsed) {
-    showError('رابط تليجرام غير صالح');
-    return;
-  }
+  if (!parsed) { showError('رابط تليجرام غير صالح'); return; }
 
   setText('جاري الاتصال بـ Telegram...');
 
@@ -137,7 +110,6 @@ async function runEmbedMode(tgUrl) {
     const url = URL.createObjectURL(blob);
     try { await dl.disconnect(); } catch (e) {}
     showVideo(url);
-
     if (window.parent !== window) {
       try { window.parent.postMessage({ type: 'tg-embed-success' }, '*'); } catch (e) {}
     }
@@ -147,15 +119,11 @@ async function runEmbedMode(tgUrl) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// نقطة البداية
-// ═══════════════════════════════════════════════════════════════
 function boot() {
   const params = new URLSearchParams(location.search);
   const embed = params.get('embed');
   const url = params.get('url');
 
-  // ─── Embed Mode ───
   if (embed === '1' && url) {
     document.getElementById('app').innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:16px;background:#0b0b0f;color:#4ea8de;font-family:Cairo,sans-serif;">
@@ -164,33 +132,25 @@ function boot() {
         <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
       </div>
     `;
-
-    // إرسال رسالة جاهزية إلى الصفحة الأم
     if (window.parent !== window) {
       try { window.parent.postMessage({ type: 'tg-embed-ready' }, '*'); } catch (e) {}
     }
-
     runEmbedMode(url).catch((e) => {
       console.error('[embed] fatal:', e);
       if (window.parent !== window) {
-        try {
-          window.parent.postMessage({ type: 'tg-embed-error', message: String(e) }, '*');
-        } catch (err) {}
+        try { window.parent.postMessage({ type: 'tg-embed-error', message: String(e) }, '*'); } catch (err) {}
       }
     });
     return;
   }
 
-  // ─── Normal Mode ───
   initUI();
 }
 
-// تشغيل عند تحميل الصفحة
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {
   boot();
 }
 
-// تصدير للاستخدام الخارجي
 export { runEmbedMode, loadSettings };
