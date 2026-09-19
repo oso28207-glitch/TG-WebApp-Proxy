@@ -41,10 +41,6 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2020',
     rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        player: resolve(__dirname, 'src/player.html'),
-      },
       output: {
         manualChunks: {
           teleproto: ['teleproto'],
