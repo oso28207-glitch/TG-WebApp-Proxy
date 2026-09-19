@@ -2,13 +2,13 @@
  * Telegram File Downloader - Client-Side MTProto
  * Two-step flow: Fetch file info (cached) → Download with parallel connections
  * + Incoming messages with reply popup
+ * + Embed mode for external iframe integration
  */
 
 import './polyfills.js';
 import './proxy-hook.js';
 import './style.css';
 import { TGDownloader, getApi } from './telegram-client.js';
-// teleproto is a maintained fork of GramJS with up-to-date TL layers
 import { parseTelegramLink, describeParsedLink, formatFileSize, getFileIcon } from './link-parser.js';
 import { initDB, addMessageToConversation, addBotReplyToConversation, getAllConversations, getConversation, saveFile, getAllFiles, markFileDownloaded, clearAllData, deleteConversation, clearConversations, clearFiles } from './db.js';
 import { getSettings, saveSettings, getChunkSizeOptions, getDefaults, getProxySettings, saveProxySettings } from './settings.js';
@@ -21,7 +21,7 @@ let downloader = null;
 let isConnected = false;
 let isDownloading = false;
 let currentFileRef = null;
-let manuallyDisconnected = false; // Prevents auto-reconnect after manual disconnect
+let manuallyDisconnected = false;
 
 // ===== Mode Router =====
 function getSavedMode() { return localStorage.getItem(MODE_KEY); }
@@ -70,7 +70,6 @@ function initUserMode() {
     if (mode === 'bot') { setSavedMode('bot'); initBotMode(); }
     else { setSavedMode(null); showLandingPage(); }
   };
-  // Store globally so account switcher can re-render user mode
   window._userModeSwitchMode = switchMode;
   window._userModeAddLog = addLog;
   renderUserMode(app, addLog, switchMode);
@@ -78,7 +77,6 @@ function initUserMode() {
 
 // ===== Initialize UI =====
 async function initBotMode() {
-  // Initialize IndexedDB
   await initDB();
 
   const app = document.getElementById('app');
@@ -91,7 +89,6 @@ async function initBotMode() {
   bindEvents();
   
   if (hasSavedCreds) {
-    // Fill hidden fields (for manual connect if needed)
     document.getElementById('apiId').value = saved.apiId || '';
     document.getElementById('apiHash').value = saved.apiHash || '';
     document.getElementById('botToken').value = saved.botToken || '';
@@ -99,7 +96,6 @@ async function initBotMode() {
   
   addLog('dim', 'All processing happens in your browser. Nothing is sent to any server.');
   
-  // Restore saved data from IndexedDB
   await restoreFromDB();
   
   if (hasSavedCreds) {
@@ -110,8 +106,110 @@ async function initBotMode() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  🎬 Embed Mode — يعرض الفيديو مباشرة داخل iframe
+// ═══════════════════════════════════════════════════════════
+async function runEmbedMode(tgUrl) {
+  const setText = (t) => {
+    const el = document.getElementById('embedText');
+    if (el) el.textContent = t;
+  };
+  const showVideo = (blobUrl) => {
+    document.getElementById('app').innerHTML = `
+      <video id="embedPlayer" src="${blobUrl}" controls autoplay playsinline
+             style="position:fixed;inset:0;width:100%;height:100%;background:#000;object-fit:contain;"></video>
+    `;
+    const v = document.getElementById('embedPlayer');
+    if (v && v.play) v.play().catch(() => {});
+  };
+  const showError = (msg) => {
+    document.getElementById('app').innerHTML = `
+      <div style="position:fixed;inset:0;background:#0b0b0f;color:#f5f5f7;font-family:system-ui;padding:2rem;text-align:center;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem;">
+        <div style="font-size:2.5rem;">❌</div>
+        <div style="color:#ff383c;font-weight:700;font-size:1.1rem;">فشل تحميل الفيديو</div>
+        <div style="color:#9a9aa5;max-width:480px;line-height:1.7;font-size:0.9rem;direction:rtl;">${msg}</div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap;justify-content:center;">
+          <a href="${tgUrl}" target="_blank" rel="noopener"
+             style="background:#e50914;color:#fff;padding:0.6rem 1.2rem;border-radius:8px;text-decoration:none;font-weight:700;">📱 فتح في تليجرام</a>
+          <button onclick="location.reload()"
+             style="background:transparent;color:#f5f5f7;padding:0.6rem 1.2rem;border-radius:8px;border:1px solid rgba(255,255,255,0.15);font-weight:700;cursor:pointer;font-family:inherit;">🔄 إعادة المحاولة</button>
+        </div>
+      </div>
+    `;
+  };
+
+  const temp = new TGDownloader(() => {}, () => {});
+  const saved = temp.getSavedCredentials();
+  if (!saved || !saved.apiId || !saved.apiHash || !saved.botToken) {
+    showError('لا توجد جلسة مسجّلة. افتح <a href="/" target="_blank" style="color:#e50914;">الصفحة الرئيسية</a> وسجّل الدخول أولاً، ثم أعد تحميل هذه الصفحة.');
+    return;
+  }
+
+  let parsed = null;
+  let m = tgUrl.match(/t\.me\/c\/(\d+)\/(\d+)/);
+  if (m) parsed = { channel: '-100' + m[1], messageId: parseInt(m[2], 10) };
+  if (!parsed) {
+    m = tgUrl.match(/t\.me\/([A-Za-z0-9_]{4,})\/(\d+)/);
+    if (m) parsed = { channel: m[1], messageId: parseInt(m[2], 10) };
+  }
+  if (!parsed) {
+    showError('رابط تليجرام غير صالح');
+    return;
+  }
+
+  setText('جاري الاتصال بـ Telegram...');
+  const dl = new TGDownloader(
+    (type, msg) => console.log(`[embed:${type}] ${msg}`),
+    (p) => {
+      const pct = Math.max(0, Math.min(100, Number(p.percent) || 0));
+      setText(`جاري تحميل الفيديو... ${Math.round(pct)}%`);
+    }
+  );
+
+  try {
+    await dl.connect(saved.apiId, saved.apiHash, saved.botToken);
+    setText('جاري جلب معلومات الملف...');
+    const ref = await dl.fetchFileInfo(parsed.channel, parsed.messageId, tgUrl);
+    setText('جاري التحميل...');
+    const result = await dl.downloadFile(ref);
+    const blob = result && result.blob ? result.blob : result;
+    const url = URL.createObjectURL(blob);
+    try { await dl.disconnect(); } catch (e) {}
+    showVideo(url);
+  } catch (e) {
+    showError(e.message || String(e));
+  }
+}
+
 async function init() {
   await initDB();
+
+  // ═══ Embed Mode Check ═══
+  const params = new URLSearchParams(location.search);
+  if (params.get('embed') === '1') {
+    const videoUrl = params.get('url');
+    if (!videoUrl) {
+      document.body.innerHTML = '<div style="padding:2rem;color:#fff;background:#0b0b0f;height:100vh;font-family:sans-serif;text-align:center;">❌ لا يوجد رابط فيديو (url param)</div>';
+      return;
+    }
+    document.body.style.cssText = 'background:#000;margin:0;padding:0;overflow:hidden;height:100vh;';
+    const app = document.getElementById('app');
+    if (app) {
+      app.innerHTML = `
+        <div style="position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center;">
+          <div style="color:#9a9aa5;font-family:system-ui;font-size:14px;text-align:center;">
+            <div style="width:46px;height:46px;border:4px solid rgba(229,9,20,0.18);border-top-color:#e50914;border-radius:50%;animation:spin 0.85s linear infinite;margin:0 auto 16px;"></div>
+            <div id="embedText">جاري التحضير...</div>
+          </div>
+        </div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      `;
+    }
+    await runEmbedMode(videoUrl);
+    return;
+  }
+
+  // ═══ Normal Mode ═══
   const savedMode = getSavedMode();
   if (savedMode === 'bot') {
     initBotMode();
@@ -129,7 +227,6 @@ function renderApp(hasSavedCreds) {
       <p>Client-side MTProto • No file size limits • Parallel downloads • Powered by teleproto</p>
     </div>
 
-    <!-- Connection Card -->
     <div class="card" id="connectionCard">
       <div class="flex-between mb-8">
         <h2><span class="icon">🔌</span> Connection</h2>
@@ -139,7 +236,6 @@ function renderApp(hasSavedCreds) {
         </span>
       </div>
       ${hasSavedCreds ? `
-        <!-- Creds saved — show minimal bar -->
         <div class="flex-between">
           <span class="text-dim">🔑 Credentials saved</span>
           <div style="display: flex; gap: 8px;">
@@ -181,7 +277,6 @@ function renderApp(hasSavedCreds) {
       `}
     </div>
 
-    <!-- Incoming Messages (first) -->
     <div class="card" id="messagesCard">
       <div class="flex-between mb-8">
         <h2><span class="icon">💬</span> Incoming Messages</h2>
@@ -193,7 +288,6 @@ function renderApp(hasSavedCreds) {
       </div>
     </div>
 
-    <!-- Incoming Files (second) -->
     <div class="card" id="incomingCard">
       <div class="flex-between mb-8">
         <h2><span class="icon">📨</span> Incoming Files</h2>
@@ -205,7 +299,6 @@ function renderApp(hasSavedCreds) {
       </div>
     </div>
 
-    <!-- Download Card (third) -->
     <div class="card" id="downloadCard">
       <h2><span class="icon">📥</span> Download File</h2>
       <div class="form-group">
@@ -245,7 +338,6 @@ function renderApp(hasSavedCreds) {
       </div>
     </div>
 
-    <!-- Settings Card (hidden by default, toggled via ⚙️ button) -->
     <div class="card hidden" id="settingsCard">
       <div class="flex-between mb-8">
         <h2><span class="icon">⚙️</span> Settings</h2>
@@ -294,7 +386,6 @@ function renderApp(hasSavedCreds) {
       </div>
     </div>
 
-    <!-- Log Card -->
     <div class="card">
       <div class="flex-between mb-8">
         <h2><span class="icon">📋</span> Log</h2>
@@ -307,7 +398,6 @@ function renderApp(hasSavedCreds) {
       <div class="log-container" id="logContainer"></div>
     </div>
 
-    <!-- Reply Popup Modal -->
     <div id="replyModal" class="modal-overlay hidden">
       <div class="modal">
         <div class="modal-header">
@@ -545,7 +635,6 @@ function bindEvents() {
   });
 }
 
-// ===== Save & Reconnect =====
 async function handleSaveReconnect() {
   const apiId = document.getElementById('apiId').value.trim();
   const apiHash = document.getElementById('apiHash').value.trim();
@@ -695,7 +784,6 @@ function startListeners() {
   downloader.startMessageListener((msgInfo) => addIncomingMessage(msgInfo));
 }
 
-// ===== Fetch File Info =====
 async function handleFetchInfo() {
   if (!isConnected || !downloader) return;
   const linkInput = document.getElementById('messageLink').value.trim();
@@ -721,7 +809,6 @@ async function handleFetchInfo() {
   }
 }
 
-// ===== Download =====
 async function handleDownload() {
   if (!isConnected || !downloader || isDownloading || !currentFileRef) return;
   const btn = document.getElementById('btnDownload');
@@ -748,7 +835,6 @@ async function handleDownload() {
   }
 }
 
-// ===== Incoming Files =====
 let incomingCounter = 0;
 
 function addIncomingFile(fileRef) {
@@ -825,7 +911,6 @@ async function handleIncomingDownload(itemEl, fileRef) {
   }
 }
 
-// ===== Incoming Messages (Conversation-based) =====
 let openChatSenderId = null;
 
 function renderConversationItem(convo, useAppend = false) {
@@ -915,7 +1000,6 @@ async function addIncomingMessage(msgInfo) {
   }
 }
 
-// ===== Chat Popup =====
 let currentChatConvo = null;
 let replyToMsgId = null;
 
@@ -1188,7 +1272,6 @@ async function handleSendReply() {
   }
 }
 
-// ===== Clear Session =====
 function handleClearSession() {
   const temp = new TGDownloader(() => {}, () => {});
   temp.clearSession();
@@ -1199,7 +1282,6 @@ function handleClearSession() {
   addLog('info', 'Session and credentials cleared.');
 }
 
-// ===== UI Helpers =====
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
@@ -1209,8 +1291,8 @@ function escapeHtml(str) {
 function setConnectionStatus(status) {
   const badge = document.getElementById('statusBadge');
   const text = document.getElementById('statusText');
-  badge.className = `status-badge ${status}`;
-  text.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+  if (badge) badge.className = `status-badge ${status}`;
+  if (text) text.textContent = status.charAt(0).toUpperCase() + status.slice(1);
   
   const btnDisconnect = document.getElementById('btnDisconnect');
   const btnReconnect = document.getElementById('btnReconnect');
@@ -1253,28 +1335,34 @@ function updateProgress(progress) {
   const eta = document.getElementById('progressEta');
   if (!bar) return;
   bar.style.width = `${progress.percent.toFixed(1)}%`;
-  percent.textContent = `${progress.percent.toFixed(1)}%`;
-  speed.textContent = `${formatFileSize(progress.speed)}/s`;
-  if (progress.remaining > 0 && progress.remaining < 86400) {
-    const mins = Math.floor(progress.remaining / 60);
-    const secs = Math.floor(progress.remaining % 60);
-    eta.textContent = mins > 0 ? `${mins}m ${secs}s left` : `${secs}s left`;
-  } else {
-    eta.textContent = 'Calculating...';
+  if (percent) percent.textContent = `${progress.percent.toFixed(1)}%`;
+  if (speed) speed.textContent = `${formatFileSize(progress.speed)}/s`;
+  if (eta) {
+    if (progress.remaining > 0 && progress.remaining < 86400) {
+      const mins = Math.floor(progress.remaining / 60);
+      const secs = Math.floor(progress.remaining % 60);
+      eta.textContent = mins > 0 ? `${mins}m ${secs}s left` : `${secs}s left`;
+    } else {
+      eta.textContent = 'Calculating...';
+    }
   }
 }
 
 function resetProgress() {
   const bar = document.getElementById('progressBar');
   if (bar) bar.style.width = '0%';
-  document.getElementById('progressPercent').textContent = '0%';
-  document.getElementById('progressSpeed').textContent = '--';
-  document.getElementById('progressEta').textContent = '--';
+  const p = document.getElementById('progressPercent');
+  const s = document.getElementById('progressSpeed');
+  const e = document.getElementById('progressEta');
+  if (p) p.textContent = '0%';
+  if (s) s.textContent = '--';
+  if (e) e.textContent = '--';
 }
 
 function showFileInfo(fileRef) {
   const box = document.getElementById('fileInfoBox');
   const content = document.getElementById('fileInfoContent');
+  if (!box || !content) return;
   content.innerHTML = `
     <dt>📄 File</dt><dd>${fileRef.fileName}</dd>
     <dt>📊 Size</dt><dd>${formatFileSize(fileRef.fileSize)}</dd>
@@ -1286,6 +1374,7 @@ function showFileInfo(fileRef) {
 
 function addToHistory(fileInfo) {
   const list = document.getElementById('historyList');
+  if (!list) return;
   const icon = getFileIcon(fileInfo.mimeType, fileInfo.fileName);
   if (list.querySelector('.text-dim')) list.innerHTML = '';
   const item = document.createElement('div');
@@ -1300,7 +1389,6 @@ function addToHistory(fileInfo) {
   list.prepend(item);
 }
 
-// ===== Internet / Connection Recovery =====
 let reconnectTimer = null;
 
 function startConnectionWatcher() {
@@ -1355,7 +1443,6 @@ function scheduleReconnect(delayMs) {
   }, delayMs);
 }
 
-// ===== Settings Handlers =====
 function loadSettingsUI() {
   const s = getSettings();
   const proxy = getProxySettings();
@@ -1408,66 +1495,6 @@ function handleResetSettings() {
   }
   addLog('info', '⚙️ Settings reset to defaults.');
 }
-
-// ═══════════════════════════════════════════════════════════
-//  Player API — exposed for player.html iframe integration
-//  يسمح لصفحة player.html بطلب تحميل الفيديو والحصول على Blob URL
-// ═══════════════════════════════════════════════════════════
-(function exposePlayerAPI() {
-    if (window.__tg_player_api__) return;
-
-    window.__tg_player_api__ = {
-        isReady: true,
-
-        loadVideo: async function (channel, messageId, callbacks) {
-            const opts = callbacks || {};
-            try {
-                if (!downloader || !isConnected) {
-                    throw new Error(
-                        'Not connected. Open the main app first to authenticate.'
-                    );
-                }
-
-                const linkKey = `player_${channel}_${messageId}`;
-                const ref = await downloader.fetchFileInfo(
-                    String(channel),
-                    Number(messageId),
-                    linkKey
-                );
-
-                const originalOnProgress = downloader.onProgress;
-                downloader.onProgress = function (data) {
-                    try {
-                        if (opts.onProgress && data && data.percent) {
-                            opts.onProgress(data.percent);
-                        }
-                    } catch (_) {}
-                    if (originalOnProgress) originalOnProgress(data);
-                };
-
-                const result = await downloader.downloadFile(ref);
-                downloader.onProgress = originalOnProgress;
-
-                const blob = result && result.blob ? result.blob : result;
-                const url = URL.createObjectURL(blob);
-
-                if (opts.onComplete) opts.onComplete(url, ref);
-            } catch (e) {
-                if (opts.onError) opts.onError(e.message || String(e));
-            }
-        },
-
-        getSession: function () {
-            try {
-                return downloader ? downloader.getSavedCredentials() : null;
-            } catch (_) {
-                return null;
-            }
-        },
-    };
-
-    console.log('[player-api] Exposed window.__tg_player_api__');
-})();
 
 // ===== Boot =====
 document.addEventListener('DOMContentLoaded', () => {
