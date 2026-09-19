@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": ["/player.html", "/player", "/assets/*", "/favicon.ico"]
+}
