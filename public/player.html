@@ -13,11 +13,7 @@
       min-height: 100vh;
       overflow: hidden;
     }
-    .wrap {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
+    .wrap { display: flex; flex-direction: column; height: 100vh; }
     .topbar {
       padding: 0.7rem 1.2rem;
       background: rgba(0,0,0,0.9);
@@ -44,16 +40,9 @@
     .stage video {
       width: 100%;
       height: 100%;
-      max-height: 100vh;
       background: #000;
       display: block;
       outline: none;
-    }
-    .stage iframe {
-      width: 100%;
-      height: 100%;
-      border: 0;
-      display: block;
     }
 
     .overlay {
@@ -145,7 +134,6 @@
     </header>
 
     <div class="stage" id="stage">
-      <!-- 1) Loading overlay -->
       <div class="overlay" id="loading">
         <div class="spinner"></div>
         <h2 id="loadingTitle">جاري تحميل الحلقة</h2>
@@ -155,7 +143,6 @@
         <div class="progress"><div id="progressBar"></div></div>
       </div>
 
-      <!-- 2) Error overlay -->
       <div class="overlay hidden" id="errorBox">
         <div class="error">
           <h3 id="errorTitle">حدث خطأ</h3>
@@ -173,131 +160,90 @@
     </div>
   </div>
 
-  <script type="module">
-    // ═══════════════════════════════════════════════════════════
-    //  TelegramFlix Player — Integration with TG-WebApp-Proxy
-    // ═══════════════════════════════════════════════════════════
+  <script>
+  (function () {
+    'use strict';
 
-    const $ = (id) => document.getElementById(id);
-    const statusEl    = $('status');
-    const loadingEl   = $('loading');
-    const loadingTxt  = $('loadingText');
-    const loadingTtl  = $('loadingTitle');
-    const progressBar = $('progressBar');
-    const errorBox    = $('errorBox');
-    const errorTtl    = $('errorTitle');
-    const errorMsg    = $('errorMsg');
-    const errorTgBtn  = $('errorTgBtn');
-    const stage       = $('stage');
+    var $ = function (id) { return document.getElementById(id); };
+    var statusEl    = $('status');
+    var loadingEl   = $('loading');
+    var loadingTxt  = $('loadingText');
+    var loadingTtl  = $('loadingTitle');
+    var progressBar = $('progressBar');
+    var errorBox    = $('errorBox');
+    var errorTtl    = $('errorTitle');
+    var errorMsg    = $('errorMsg');
+    var errorTgBtn  = $('errorTgBtn');
+    var stage       = $('stage');
 
-    // ─── Parse URL param ───
-    const params = new URLSearchParams(location.search);
-    const tgUrl  = params.get('url');
+    var params = new URLSearchParams(location.search);
+    var tgUrl  = params.get('url');
 
-    if (!tgUrl) {
-      return showError(
-        'لم يتم تحديد الحلقة',
-        'أضف ?url=https://t.me/... إلى رابط الصفحة.',
-        ''
-      );
+    function setStatus(cls, text) {
+      statusEl.className = 'status ' + cls;
+      statusEl.textContent = text;
     }
 
-    // ─── Parse Telegram link → (channel, messageId) ───
-    const parsed = parseTelegramUrl(tgUrl);
-    if (!parsed) {
-      return showError(
-        'رابط غير صالح',
-        'تأكد أن الرابط بصيغة t.me/channel/123 أو t.me/c/123/456.',
-        tgUrl
-      );
+    function showError(title, msg, fallbackUrl) {
+      loadingEl.classList.add('hidden');
+      errorBox.classList.remove('hidden');
+      errorTtl.textContent = title;
+      errorMsg.textContent = msg;
+      if (fallbackUrl) errorTgBtn.href = fallbackUrl;
+      setStatus('err', '❌ خطأ');
     }
 
-    errorTgBtn.href = tgUrl;
+    function showVideo(blobUrl) {
+      loadingEl.classList.add('hidden');
+      errorBox.classList.add('hidden');
 
-    // ─── Init ───
-    (async function boot() {
-      try {
-        setStatus('load', '🔍 جاري البحث عن الجلسة...');
+      var video = document.createElement('video');
+      video.src = blobUrl;
+      video.controls = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.style.width = '100%';
+      video.style.height = '100%';
 
-        // 1) انتظر حتى يُحمّل الـ API من التطبيق الرئيسي
-        const api = await waitForPlayerAPI(8000);
+      stage.innerHTML = '';
+      stage.appendChild(video);
 
-        if (!api) {
-          return showError(
-            'لم يتم العثور على عميل تليجرام',
-            'يجب فتح الصفحة الرئيسية أولاً لتسجيل الدخول، ثم إعادة تحميل هذه الصفحة.',
-            tgUrl
-          );
-        }
+      video.addEventListener('play', function () {
+        setStatus('on', '▶ قيد التشغيل');
+      });
+      video.addEventListener('pause', function () {
+        setStatus('on', '⏸ متوقف مؤقتاً');
+      });
+      video.addEventListener('ended', function () {
+        setStatus('on', '✅ انتهت الحلقة');
+      });
+      video.addEventListener('error', function () {
+        showError('خطأ في تشغيل الفيديو', 'المتصفح رفض تشغيل الفيديو', tgUrl);
+      });
 
-        // 2) تحقق من وجود جلسة
-        const session = api.getSession ? api.getSession() : null;
-        if (!session) {
-          return showError(
-            'لا توجد جلسة مسجّلة',
-            'افتح الصفحة الرئيسية وسجّل الدخول بحسابك، ثم أعد المحاولة.',
-            tgUrl
-          );
-        }
-
-        setStatus('load', '📥 جاري تحميل الفيديو...');
-        loadingTtl.textContent = 'جاري تحميل الفيديو من Telegram';
-        loadingTxt.textContent = 'قد يستغرق هذا بضع دقائق حسب حجم الحلقة...';
-
-        // 3) اطلب من الـ API تحميل الفيديو
-        api.loadVideo(parsed.channel, parsed.messageId, {
-          onProgress: (percent) => {
-            const p = Math.max(0, Math.min(100, Number(percent) || 0));
-            progressBar.style.width = p + '%';
-            loadingTxt.textContent = `جاري التحميل... ${Math.round(p)}%`;
-          },
-          onComplete: (blobUrl, fileRef) => {
-            showVideo(blobUrl, fileRef);
-          },
-          onError: (errMsg) => {
-            showError('فشل تحميل الفيديو', errMsg, tgUrl);
-          },
+      var p = video.play();
+      if (p && p.catch) {
+        p.catch(function () {
+          setStatus('on', '▶ اضغط للتشغيل');
         });
-      } catch (e) {
-        showError('خطأ غير متوقع', e.message || String(e), tgUrl);
       }
-    })();
+    }
 
-    // ═══════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * استخراج القناة و messageId من رابط Telegram
-     * يدعم:
-     *   https://t.me/shoofcima/880
-     *   https://t.me/c/1234567890/880
-     *   https://t.me/+hash/880
-     */
     function parseTelegramUrl(url) {
       if (!url) return null;
-
-      // رابط قناة خاصة: t.me/c/<id>/<msgId>
-      let m = url.match(/t\.me\/c\/(\d+)\/(\d+)/);
-      if (m) {
-        return { channel: '-100' + m[1], messageId: parseInt(m[2], 10) };
-      }
-
-      // رابط قناة عامة: t.me/<username>/<msgId>
+      var m = url.match(/t\.me\/c\/(\d+)\/(\d+)/);
+      if (m) return { channel: '-100' + m[1], messageId: parseInt(m[2], 10) };
       m = url.match(/t\.me\/([A-Za-z0-9_]{4,})\/(\d+)/);
-      if (m) {
-        return { channel: m[1], messageId: parseInt(m[2], 10) };
-      }
-
+      if (m) return { channel: m[1], messageId: parseInt(m[2], 10) };
       return null;
     }
 
-    /** انتظر توفر window.__tg_player_api__ */
     function waitForPlayerAPI(timeoutMs) {
-      return new Promise((resolve) => {
-        const started = Date.now();
-        const tick = () => {
-          const api = window.__tg_player_api__;
+      return new Promise(function (resolve) {
+        var started = Date.now();
+        var tick = function () {
+          var api = window.__tg_player_api__;
           if (api && api.isReady && typeof api.loadVideo === 'function') {
             return resolve(api);
           }
@@ -308,66 +254,66 @@
       });
     }
 
-    /** عرض الفيديو في الصفحة */
-    function showVideo(blobUrl, fileRef) {
-      loadingEl.classList.add('hidden');
-      errorBox.classList.add('hidden');
+    if (!tgUrl) {
+      showError('لم يتم تحديد الحلقة', 'أضف ?url=https://t.me/... إلى رابط الصفحة.', 'https://t.me');
+      return;
+    }
 
-      // أنشئ عنصر video
-      const video = document.createElement('video');
-      video.src = blobUrl;
-      video.controls = true;
-      video.autoplay = true;
-      video.playsInline = true;
-      video.preload = 'auto';
-      video.setAttribute('controlsList', 'nodownload');
-      video.style.width = '100%';
-      video.style.height = '100%';
+    var parsed = parseTelegramUrl(tgUrl);
+    if (!parsed) {
+      showError('رابط غير صالح', 'تأكد أن الرابط بصيغة t.me/channel/123 أو t.me/c/123/456.', tgUrl);
+      return;
+    }
 
-      stage.innerHTML = '';
-      stage.appendChild(video);
+    errorTgBtn.href = tgUrl;
 
-      video.addEventListener('play', () => {
-        setStatus('on', '▶ قيد التشغيل');
-      });
+    (async function boot() {
+      try {
+        setStatus('load', '🔍 جاري البحث عن الجلسة...');
 
-      video.addEventListener('pause', () => {
-        setStatus('on', '⏸ متوقف مؤقتاً');
-      });
+        var api = await waitForPlayerAPI(8000);
 
-      video.addEventListener('ended', () => {
-        setStatus('on', '✅ انتهت الحلقة');
-      });
+        if (!api) {
+          showError(
+            'لم يتم العثور على عميل تليجرام',
+            'افتح الصفحة الرئيسية أولاً لتسجيل الدخول، ثم أعد تحميل هذه الصفحة.',
+            tgUrl
+          );
+          return;
+        }
 
-      video.addEventListener('error', (e) => {
-        showError('خطأ في تشغيل الفيديو', String(e), tgUrl);
-      });
+        var session = api.getSession ? api.getSession() : null;
+        if (!session) {
+          showError(
+            'لا توجد جلسة مسجّلة',
+            'افتح الصفحة الرئيسية وسجّل الدخول بحسابك، ثم أعد المحاولة.',
+            tgUrl
+          );
+          return;
+        }
 
-      // حاول التشغيل
-      const p = video.play();
-      if (p && p.catch) {
-        p.catch(() => {
-          // المتصفح رفض التشغيل التلقائي — سيضغط المستخدم زر التشغيل
-          setStatus('on', '▶ اضغط للتشغيل');
+        setStatus('load', '📥 جاري تحميل الفيديو...');
+        loadingTtl.textContent = 'جاري تحميل الفيديو من Telegram';
+        loadingTxt.textContent = 'قد يستغرق هذا بضع دقائق حسب حجم الحلقة...';
+
+        api.loadVideo(parsed.channel, parsed.messageId, {
+          onProgress: function (percent) {
+            var p = Math.max(0, Math.min(100, Number(percent) || 0));
+            progressBar.style.width = p + '%';
+            loadingTxt.textContent = 'جاري التحميل... ' + Math.round(p) + '%';
+          },
+          onComplete: function (blobUrl) {
+            showVideo(blobUrl);
+          },
+          onError: function (errMsg) {
+            showError('فشل تحميل الفيديو', errMsg, tgUrl);
+          }
         });
+      } catch (e) {
+        showError('خطأ غير متوقع', e.message || String(e), tgUrl);
       }
-    }
-
-    /** عرض خطأ */
-    function showError(title, msg, tgUrlFallback) {
-      loadingEl.classList.add('hidden');
-      errorBox.classList.remove('hidden');
-      errorTtl.textContent = title;
-      errorMsg.textContent = msg;
-      if (tgUrlFallback) errorTgBtn.href = tgUrlFallback;
-      setStatus('err', '❌ خطأ');
-    }
-
-    /** تحديث شريط الحالة */
-    function setStatus(cls, text) {
-      statusEl.className = 'status ' + cls;
-      statusEl.textContent = text;
-    }
+    })();
+  })();
   </script>
 </body>
 </html>
